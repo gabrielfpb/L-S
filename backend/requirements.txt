@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+psycopg2-binary
+redis
+pandas
+numpy
+scipy
+statsmodels
+celery
+pydantic-settings
+python-jose[cryptography]
+passlib[bcrypt]
