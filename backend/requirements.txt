@@ -11,3 +11,4 @@ celery
 pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
+alembic

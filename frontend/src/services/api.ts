@@ -1,21 +1,25 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: process.env.REACT_APP_API_URL || '/api', // Adjust as needed
+  // Ensure this points to your backend, including the /api/v1 prefix if that's where your routes are mounted
+  baseURL: process.env.REACT_APP_API_BASE_URL || '/api/v1',
   headers: {
     'Content-Type': 'application/json',
   },
 });
 
-// Example function
-export const fetchDashboardData = async () => {
-  try {
-    const response = await apiClient.get('/dashboard');
-    return response.data;
-  } catch (error) {
-    console.error('Error fetching dashboard data:', error);
-    throw error;
-  }
-};
+// Add a request interceptor to include the auth token if available
+apiClient.interceptors.request.use(
+    (config) => {
+        const token = localStorage.getItem('authToken');
+        if (token) {
+            config.headers['Authorization'] = `Bearer ${token}`;
+        }
+        return config;
+    },
+    (error) => {
+        return Promise.reject(error);
+    }
+);
 
 export default apiClient;

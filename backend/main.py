@@ -1,6 +1,6 @@
 from fastapi import FastAPI
-from app.api.routes import data_routes
-from app.api.routes import cointegration_routes # New import
+# ... other router imports
+from app.api.routes import data_routes, cointegration_routes, trade_routes, auth_routes, task_routes # Added task_routes
 
 app = FastAPI(title="Long & Short Quant API")
 
@@ -10,7 +10,7 @@ async def root():
 
 # Include routers
 app.include_router(data_routes.router, prefix="/api/v1", tags=["Market Data"])
-app.include_router(cointegration_routes.router, prefix="/api/v1", tags=["Cointegration Analysis"]) # New router
-# Example for future routers:
-# app.include_router(trade_routes.router, prefix="/api/v1", tags=["Trading"])
-# app.include_router(auth_routes.router, prefix="/api/v1", tags=["Authentication"])
+app.include_router(cointegration_routes.router, prefix="/api/v1", tags=["Cointegration Analysis"])
+app.include_router(trade_routes.router, prefix="/api/v1/trades", tags=["Trade Management"])
+app.include_router(auth_routes.router, prefix="/api/v1/auth", tags=["Authentication"])
+app.include_router(task_routes.router, prefix="/api/v1/tasks", tags=["Async Tasks"]) # New Task router
