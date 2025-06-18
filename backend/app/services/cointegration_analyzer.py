@@ -8,8 +8,25 @@ from .data_collector import get_asset_data_sample
 def run_engle_granger_test(series_y: pd.Series, series_x: pd.Series) -> Dict[str, Any]:
     """
     Performs the Engle-Granger two-step cointegration test.
-    series_y is treated as Y (dependent), series_x as X (independent).
-    Assumes series_y and series_x are already aligned and cleaned.
+
+    The regression performed is Y = Beta*X + Intercept. The residuals of this
+    regression are then tested for stationarity using the Augmented Dickey-Fuller (ADF) test.
+
+    Args:
+        series_y: Pandas Series representing the dependent variable (Y). Index should be datetime.
+        series_x: Pandas Series representing the independent variable (X). Index should be datetime.
+                  Both series are assumed to be cleaned and aligned by their datetime index before calling.
+                  Series names are used for parameter identification in OLS results if available.
+
+    Returns:
+        A dictionary containing:
+            - "adf_statistic" (float): The ADF test statistic from the residuals test.
+            - "p_value" (float): The p-value from the ADF test on residuals.
+            - "critical_values" (Dict[str, float]): Critical values for the ADF test (e.g., "1%", "5%", "10%").
+            - "beta_coefficient" (float | None): The hedge ratio (coefficient of X from OLS: Y = Beta*X + const). None if not calculable.
+            - "const_coefficient" (float | None): The constant term (intercept) from the OLS regression. None if not calculable.
+            - "n_observations" (int): Number of observations used in the ADF test (length of residuals).
+            - "error" (str | None): An error message string if the test could not be performed or failed at a step.
     """
     if series_y.empty or series_x.empty:
         return {"error": "Input series cannot be empty."}
@@ -47,7 +64,19 @@ def run_engle_granger_test(series_y: pd.Series, series_x: pd.Series) -> Dict[str
 
 def calculate_pair_value(series_y: pd.Series, series_x: pd.Series, beta_x: Optional[float] = None) -> pd.Series:
     """
-    Calculates value for a pair: spread (Y - beta*X) or ratio (Y/X).
+    Calculates the value series for a pair, which can be either:
+    1. Spread: Y - (beta * X)
+    2. Ratio: Y / X (handles X=0 by replacing with NaN before division)
+
+    Args:
+        series_y: Pandas Series for asset Y.
+        series_x: Pandas Series for asset X. (Must be aligned with series_y).
+        beta_x: Optional hedge ratio (beta). If provided, calculates spread.
+                If None, calculates ratio.
+
+    Returns:
+        A Pandas Series representing the calculated spread or ratio. Returns an empty Series if inputs are empty.
+        The resulting series isname is not explicitly set here.
     """
     if series_y.empty or series_x.empty: return pd.Series(dtype=float)
     s_y_f, s_x_f = series_y.astype(float), series_x.astype(float)
@@ -56,8 +85,27 @@ def calculate_pair_value(series_y: pd.Series, series_x: pd.Series, beta_x: Optio
     return (s_y_f / s_x_f_no_zero).dropna()
 
 def calculate_zscore(series: pd.Series, window: Optional[int] = None) -> float:
-    if series.empty or len(series) < 2: return np.nan
+    """
+    Calculates the Z-score of the last point in a given Pandas Series.
+
+    The Z-score is calculated as: (last_value - mean) / std_dev.
+    Mean and standard deviation can be calculated either for the entire series (if window is None or invalid)
+    or using a rolling window of the specified size.
+
+    Args:
+        series: Pandas Series for which to calculate the Z-score. Must not be empty and have at least 2 points.
+        window: Optional integer for the rolling window size. If None, less than 2, or greater than series length,
+                the overall mean/std of the series is used.
+
+    Returns:
+        The calculated Z-score as a float. Returns np.nan if calculation is not possible
+        (e.g., series too short, standard deviation is zero, or data issues).
+    """
+    if series.empty or len(series) < 2: return np.nan # Not enough data for mean/std calculation
+
+    # Determine if rolling window should be used
     use_rolling = window is not None and window > 1 and window <= len(series)
+
     mean = series.rolling(window=window).mean().iloc[-1] if use_rolling else series.mean()
     std = series.rolling(window=window).std().iloc[-1] if use_rolling else series.std()
     if pd.isna(mean) or pd.isna(std) or std < 1e-9: return np.nan

@@ -12,7 +12,12 @@ from ..core.database import get_db
 
 router = APIRouter()
 
-@router.post("/", response_model=TradeResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=TradeResponse, status_code=status.HTTP_201_CREATED,
+             summary="Create a New Trade",
+             description="Creates a new long/short trade. The trade is associated with the authenticated user. "
+                         "If the user is a superuser, they can optionally specify a `user_id` in the request body "
+                         "to create a trade for another user. Non-superusers creating a trade for themselves "
+                         "should omit `user_id` or set it to their own ID (which will be overridden by their token's ID anyway).")
 def create_new_trade(
     trade: TradeCreate,
     db: Session = Depends(get_db),
@@ -20,7 +25,15 @@ def create_new_trade(
 ):
     """
     Create a new trade. Authenticated users only.
-    The trade will be associated with the authenticated user.
+    - **asset1_ticker**: Ticker for the primary asset (e.g., the asset being bought in a long leg).
+    - **asset2_ticker**: Ticker for the secondary asset (e.g., the asset being sold in a short leg).
+    - **quantity_asset1**: Quantity for the primary asset.
+    - **quantity_asset2**: Quantity for the secondary asset.
+    - **trade_type**: Type of trade, e.g., "LONG_SHORT_ENTRY", "EXIT_ALL". Defaults to "LONG_SHORT_ENTRY".
+    - **status**: Initial status of the trade, e.g., "OPEN", "PENDING". Defaults to "OPEN".
+    - Other fields like entry prices, Z-score, notes, SL/TP levels can be provided as per `TradeCreate` schema.
+
+    The trade will be associated with the authenticated user unless the user is a superuser and provides a different `user_id`.
     """
     # Prevent creating trade for another user unless admin (admin check not implemented here)
     if trade.user_id is not None and trade.user_id != current_user.id:

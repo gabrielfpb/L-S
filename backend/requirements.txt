@@ -12,3 +12,6 @@ pydantic-settings
 python-jose[cryptography]
 passlib[bcrypt]
 alembic
+pytest
+httpx # For FastAPI's TestClient
+pytest-cov # For coverage

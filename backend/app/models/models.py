@@ -117,3 +117,40 @@ class Trade(Base):
     # Relationships to Asset table for asset1 and asset2
     asset1 = relationship("Asset", foreign_keys=[asset1_ticker])
     asset2 = relationship("Asset", foreign_keys=[asset2_ticker])
+
+
+from sqlalchemy.dialects.postgresql import JSONB # For parameters
+
+class ReportMetadata(Base):
+    __tablename__ = "report_metadata"
+
+    id = Column(Integer, primary_key=True, index=True)
+    report_name = Column(String, nullable=True) # e.g., "Daily Summary 2023-10-26"
+    report_type = Column(String, nullable=False, index=True) # e.g., "DAILY_SUMMARY", "BACKTEST_ZSCORE_V1"
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True) # Link to user if report is user-specific
+
+    generation_requested_at = Column(DateTime(timezone=True), server_default=func.now())
+    generation_started_at = Column(DateTime(timezone=True), nullable=True)
+    generation_completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    status = Column(String, default="PENDING", nullable=False, index=True) # PENDING, PROCESSING, COMPLETED, FAILED
+
+    parameters = Column(JSONB, nullable=True) # Store parameters used for generation (e.g., backtest settings)
+
+    # Store results/summary directly or link to files
+    summary_data = Column(JSONB, nullable=True) # For small summary data
+    error_message = Column(String, nullable=True) # If generation failed
+
+    # File paths - these would be relative to a configured reports storage directory
+    file_path_pdf = Column(String, nullable=True)
+    file_path_csv = Column(String, nullable=True)
+    # Or store full URLs if files are on S3, etc.
+    # download_url_pdf = Column(String, nullable=True)
+    # download_url_csv = Column(String, nullable=True)
+
+    celery_task_id = Column(String, nullable=True, index=True) # To track the Celery task
+
+    user = relationship("User") # If user_id is used
+
+    def __repr__(self):
+        return f"<ReportMetadata(id={self.id}, type='{self.report_type}', status='{self.status}')>"

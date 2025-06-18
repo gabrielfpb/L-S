@@ -1,0 +1,21 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.git
+.gitignore
+# alembic/versions/* # Decided to keep versions in image for simplicity of entrypoint.sh
+# alembic.ini # Keep this as it defines script_location etc. for alembic cmd
+*.db
+.env
+generated_reports/
+*.pytest_cache/
+.pytest_cache/
+pytestdebug.log
+.coverage
+htmlcov/
+*.log
+local_dev_data/

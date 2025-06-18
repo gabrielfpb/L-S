@@ -23,8 +23,15 @@ export interface UserCreateResponse extends User {
     // For now, assuming User from AuthContext is sufficient
 }
 
-
-export const loginUser = async (credentials: any): Promise<{ token: string, user: User }> => {
+/**
+ * Logs in a user by sending credentials to the backend's /auth/token endpoint,
+ * then fetches user details from /auth/users/me using the obtained token.
+ *
+ * @param credentials - An object containing `username` and `password`.
+ * @returns A promise that resolves to an object containing the `token` and `user` details.
+ * @throws Throws an error if login fails or user details cannot be fetched.
+ */
+export const loginUser = async (credentials: {username: string, password: string}): Promise<{ token: string, user: User }> => {
     const formData = new URLSearchParams();
     formData.append('username', credentials.username);
     formData.append('password', credentials.password);

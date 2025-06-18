@@ -1,0 +1,16 @@
+node_modules/
+npm-debug.log
+build/
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+.git
+.gitignore
+coverage/
+src/**/*.test.ts
+src/**/*.test.tsx
+src/**/*.spec.ts
+src/**/*.spec.tsx
+src/setupTests.ts

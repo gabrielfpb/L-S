@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: longshort_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_USER=${DB_USER:-postgres}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changethis}
+      - POSTGRES_DB=${DB_NAME:-longshortquantdb}
+    ports:
+      - "${DB_PORT_HOST:-5433}:${DB_PORT_CONTAINER:-5432}" # Expose DB port to host
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-longshortquantdb}"] # Escaped $ for shell vars
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: longshort_redis
+    ports:
+      - "${REDIS_PORT_HOST:-6378}:${REDIS_PORT_CONTAINER:-6379}" # Expose Redis port to host
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: longshort_backend
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload # --reload for dev
+    volumes:
+      - ./backend:/app
+    ports:
+      - "${BACKEND_PORT_HOST:-8001}:${BACKEND_PORT_CONTAINER:-8000}"
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-changethis}@db:${DB_PORT_CONTAINER:-5432}/${DB_NAME:-longshortquantdb}
+      - REDIS_URL=redis://redis:${REDIS_PORT_CONTAINER:-6379}/0
+      - CELERY_BROKER_URL=redis://redis:${REDIS_PORT_CONTAINER:-6379}/1
+      - CELERY_RESULT_BACKEND=redis://redis:${REDIS_PORT_CONTAINER:-6379}/2
+      - SECRET_KEY=${SECRET_KEY:-supersecretkeyforlocaldev}
+      - REPORTS_STORAGE_DIR=/app/generated_reports # Ensure this matches service expectation
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy # Wait for redis to be healthy
+    #env_file:
+    #  - ./backend/.env
+
+  worker:
+    build: ./backend
+    container_name: longshort_worker
+    command: celery -A celery_worker.celery_app worker -l info -P eventlet
+    volumes:
+      - ./backend:/app
+    environment:
+      - DATABASE_URL=postgresql://${DB_USER:-postgres}:${DB_PASSWORD:-changethis}@db:${DB_PORT_CONTAINER:-5432}/${DB_NAME:-longshortquantdb}
+      - REDIS_URL=redis://redis:${REDIS_PORT_CONTAINER:-6379}/0
+      - CELERY_BROKER_URL=redis://redis:${REDIS_PORT_CONTAINER:-6379}/1
+      - CELERY_RESULT_BACKEND=redis://redis:${REDIS_PORT_CONTAINER:-6379}/2
+      - SECRET_KEY=${SECRET_KEY:-supersecretkeyforlocaldev}
+      - REPORTS_STORAGE_DIR=/app/generated_reports
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    #env_file:
+    #  - ./backend/.env
+
+  frontend:
+    build: ./frontend
+    container_name: longshort_frontend
+    ports:
+      - "${FRONTEND_PORT_HOST:-3000}:${FRONTEND_PORT_CONTAINER:-80}"
+    depends_on:
+      - backend
+    # environment:
+    #   - REACT_APP_API_BASE_URL=/api/v1 # This should be handled by Nginx proxying to backend's /api/v1
+
+volumes:
+  postgres_data:
+  redis_data:
