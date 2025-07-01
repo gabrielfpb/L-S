@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     ALPHA_VANTAGE_API_KEY: Optional[str] = None
     REPORTS_STORAGE_DIR: str = "generated_reports"
+    MARKET_DATA_CACHE_TTL_SECONDS: int = 12 * 60 * 60 # 12 hours default
 
 
     class Config:

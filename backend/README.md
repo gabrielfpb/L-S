@@ -4,7 +4,7 @@ This directory contains the FastAPI backend application.
 
 ## Overview
 The backend provides APIs for:
-*   **Market Data**: Fetching historical stock data using Alpha Vantage (primary, requires API key) and yfinance (fallback). Accessed via `/api/v1/data/`.
+*   **Market Data**: Fetching historical stock data using Alpha Vantage (primary, requires API key) and yfinance (fallback). Includes Redis caching for external API responses. Accessed via `/api/v1/data/`.
 *   **Cointegration Analysis**: Includes Engle-Granger tests, Z-Score calculation, identification of cointegrated pairs, and an endpoint (`/api/v1/cointegration/pair_historical_data`) for fetching detailed data for charting pair dynamics (spread, rolling stats, Z-score). Accessed via `/api/v1/cointegration/`.
 *   **User Authentication & Management**: JWT-based authentication, user registration. Accessed via `/api/v1/auth/`.
 *   **Trade Management**: CRUD operations for trades. Accessed via `/api/v1/trades/`.
@@ -14,6 +14,16 @@ The backend provides APIs for:
     *   Listing report metadata and allowing download of generated files (placeholder PDF/CSV).
     *   Backtesting uses real market data and a Z-score based strategy, providing key metrics and equity curve data.
     *   Accessed via `/api/v1/reports/`.
+
+## Caching Strategy (Market Data)
+To optimize performance and minimize redundant calls to external market data APIs (Alpha Vantage, yfinance), the backend implements a caching layer using Redis:
+*   **Provider-Specific Caching**: Data fetched from Alpha Vantage and yfinance is cached separately.
+*   **Cache Key Structure**: Keys are structured to be specific, e.g., `marketdata:av:<ticker_for_av>:<data_descriptor>` (like `daily_adjusted_full`) or `marketdata:yf:<ticker_for_yf>:history_10y`.
+*   **Data Cached**: Full historical data chunks (e.g., 'full' outputsize from Alpha Vantage, '10y' from yfinance) are cached before any date slicing is applied by service functions like `fetch_historical_data`. This allows various date range requests for the same raw data to benefit from the cache.
+*   **Serialization**: Pandas DataFrames are serialized to JSON strings (using `to_json(orient='split')`) and then stored as bytes in Redis. Deserialization reconstructs the DataFrame.
+*   **Cache TTL**: The Time-To-Live for cached market data is configurable via the `MARKET_DATA_CACHE_TTL_SECONDS` environment variable (default is 12 hours).
+*   **Force Refresh**: The `fetch_historical_data` service function includes a `force_refresh=True` parameter that, when used, attempts to delete relevant cache keys from Redis before fetching fresh data from external APIs.
+*   **Shared Redis Client**: A centralized Redis client is initialized in `app.core.redis_utils.py`. If the Redis server is unavailable or not configured, the `redis_client` becomes `None`, and caching is gracefully disabled, with the application falling back to direct API calls.
 
 ## API Documentation
 FastAPI automatically generates interactive API documentation when the backend service is running:

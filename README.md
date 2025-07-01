@@ -39,7 +39,7 @@ This application is designed as a robust, intuitive, and highly customizable too
     *   **Alpha Vantage API, yfinance library**: For real market data integration.
 *   **SQLAlchemy**: ORM for Python.
 *   **PostgreSQL**: Main relational database.
-*   **Redis**: Cache, message broker for Celery.
+    *   **Redis**: Message Broker & Result Backend for Celery, Application-level Caching (e.g., Market Data).
 *   **Pandas/NumPy**: Data analysis and manipulation.
 *   **SciPy/Statsmodels**: Statistical analysis.
 *   **Celery**: Asynchronous task processing.
