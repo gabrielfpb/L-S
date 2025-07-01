@@ -9,6 +9,9 @@ from ..api.schemas.cointegration_schemas import (
 )
 import pandas as pd
 import numpy as np # For np.nan checks
+from ..schemas.cointegration_schemas import HistoricalPairDataRequest, HistoricalPairDataResponse # New schemas
+from sqlalchemy.orm import Session # For db dependency
+from ...core.database import get_db # For db dependency
 
 router = APIRouter()
 
@@ -111,3 +114,36 @@ async def api_identify_cointegrated_pairs(params: IdentifyPairsRequest):
             found_pairs_count=len(pair_data), pairs=pair_data, parameters_used=params
         )
     except Exception as e: raise HTTPException(status_code=500, detail=f"Server error identify: {e}")
+
+
+@router.post("/pair_historical_data", response_model=HistoricalPairDataResponse)
+async def get_historical_pair_chart_data(
+    request: HistoricalPairDataRequest,
+    db: Session = Depends(get_db)
+    # current_user: UserModel = Depends(get_current_active_user) # Optional: Protect if needed
+):
+    """
+    Fetches detailed historical data for a given asset pair (Y, X) over a specified date range.
+
+    Calculates and returns:
+    - Historical prices for Y and X.
+    - The spread (Y - Beta*X), where Beta is the hedge ratio (recalculated for the period).
+    - Rolling mean of the spread.
+    - Z-Score bands (+/-1 and +/-2 standard deviations from the rolling mean).
+    - The rolling Z-Score of the spread.
+
+    This data is suitable for detailed charting of pair dynamics and identifying trading opportunities.
+    """
+    result_data = ca.get_historical_pair_data_for_charting(
+        db=db,
+        ticker_y=request.ticker_y,
+        ticker_x=request.ticker_x,
+        start_date=request.start_date,
+        end_date=request.end_date,
+        z_score_window=request.z_score_window
+    )
+
+    if result_data.get("error"):
+        raise HTTPException(status_code=400, detail=result_data.get("error"))
+
+    return HistoricalPairDataResponse(**result_data)

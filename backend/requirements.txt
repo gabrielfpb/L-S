@@ -15,3 +15,5 @@ alembic
 pytest
 httpx # For FastAPI's TestClient
 pytest-cov # For coverage
+alpha-vantage
+yfinance

@@ -4,12 +4,16 @@ This directory contains the FastAPI backend application.
 
 ## Overview
 The backend provides APIs for:
-*   Market Data (simulated, via `/api/v1/data/`)
-*   Cointegration Analysis (Engle-Granger, Z-Score, Pair Identification, via `/api/v1/cointegration/`)
-*   User Authentication (JWT, via `/api/v1/auth/`) and Management
-*   Trade Management (CRUD operations, via `/api/v1/trades/`)
-*   Asynchronous Task Processing (Celery, via `/api/v1/tasks/`) for reports and potentially other long-running jobs.
-*   Reporting (triggering generation, listing metadata, downloading, via `/api/v1/reports/`).
+*   **Market Data**: Fetching historical stock data using Alpha Vantage (primary, requires API key) and yfinance (fallback). Accessed via `/api/v1/data/`.
+*   **Cointegration Analysis**: Includes Engle-Granger tests, Z-Score calculation, identification of cointegrated pairs, and an endpoint (`/api/v1/cointegration/pair_historical_data`) for fetching detailed data for charting pair dynamics (spread, rolling stats, Z-score). Accessed via `/api/v1/cointegration/`.
+*   **User Authentication & Management**: JWT-based authentication, user registration. Accessed via `/api/v1/auth/`.
+*   **Trade Management**: CRUD operations for trades. Accessed via `/api/v1/trades/`.
+*   **Asynchronous Task Processing (Celery)**: Used for report generation and other potentially long-running operations. Task status can be checked via `/api/v1/tasks/`.
+*   **Reporting**:
+    *   Triggering generation of performance summary reports and backtesting reports.
+    *   Listing report metadata and allowing download of generated files (placeholder PDF/CSV).
+    *   Backtesting uses real market data and a Z-score based strategy, providing key metrics and equity curve data.
+    *   Accessed via `/api/v1/reports/`.
 
 ## API Documentation
 FastAPI automatically generates interactive API documentation when the backend service is running:
@@ -44,8 +48,8 @@ FastAPI automatically generates interactive API documentation when the backend s
         CELERY_BROKER_URL="redis://localhost:6379/1"
         CELERY_RESULT_BACKEND="redis://localhost:6379/2"
         SECRET_KEY="your_very_secret_key_for_jwt_local_dev"
-        REPORTS_STORAGE_DIR="generated_reports"
-        # Ensure this directory exists or the app has permission to create it.
+            REPORTS_STORAGE_DIR="generated_reports" # Ensure this directory exists
+            ALPHA_VANTAGE_API_KEY="YOUR_ALPHA_VANTAGE_KEY" # Optional: for Alpha Vantage data
         ```
 
 5.  **Run Database Migrations**:

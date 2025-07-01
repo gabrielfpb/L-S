@@ -53,3 +53,37 @@ class IdentifyPairsResponse(BaseModel):
     found_pairs_count: int
     pairs: List[IdentifiedPairData]
     parameters_used: IdentifyPairsRequest
+
+import datetime # Ensure datetime is imported
+
+class HistoricalPairDataRequest(BaseModel):
+    ticker_y: str
+    ticker_x: str
+    start_date: datetime.date # Using datetime.date for simplicity in request
+    end_date: datetime.date
+    z_score_window: Optional[int] = Field(default=20, gt=1) # Rolling window for Z-score & bands
+    # hedge_ratio: Optional[float] = Field(None, description="Optional: Provide hedge ratio. If None, it will be recalculated.")
+
+class TimePoint(BaseModel):
+    timestamp: datetime.datetime # Using datetime.datetime for actual data points
+    value: Optional[float] = None
+
+class HistoricalPairDataResponse(BaseModel):
+    ticker_y: str
+    ticker_x: str
+    # Ensure timestamps are strings in ISO format or Unix timestamps for JSON compatibility
+    # Pydantic will handle datetime to string conversion.
+    timestamps: List[datetime.datetime] # Common time axis for all series below
+
+    prices_y: List[Optional[float]]
+    prices_x: List[Optional[float]]
+    spread: List[Optional[float]]
+    spread_mean: List[Optional[float]] # Rolling mean of spread
+    spread_std_dev_upper_1: List[Optional[float]] # Mean + 1*STD
+    spread_std_dev_lower_1: List[Optional[float]] # Mean - 1*STD
+    spread_std_dev_upper_2: List[Optional[float]] # Mean + 2*STD
+    spread_std_dev_lower_2: List[Optional[float]] # Mean - 2*STD
+    z_score: List[Optional[float]] # Rolling Z-score of the spread
+
+    calculated_hedge_ratio_beta_x: Optional[float] = None
+    error: Optional[str] = None

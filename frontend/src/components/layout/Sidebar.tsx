@@ -2,9 +2,9 @@ import React from 'react';
 import { Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, Toolbar, Box } from '@mui/material';
 import DashboardIcon from '@mui/icons-material/Dashboard';
 import ShowChartIcon from '@mui/icons-material/ShowChart'; // For Trades/Positions
-import AssessmentIcon from '@mui/icons-material/Assessment'; // For Reports
-import SettingsIcon from '@mui/icons-material/Settings'; // Example
-import { Link as RouterLink } from 'react-router-dom';
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import SettingsIcon from '@mui/icons-material/Settings';
+import { Link as RouterLink, useLocation } from 'react-router-dom'; // Import useLocation
 
 interface SidebarProps {
     isOpen: boolean;
@@ -19,12 +19,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, drawerWidth = defaul
         { text: 'Dashboard', icon: <DashboardIcon />, path: '/dashboard' },
         { text: 'Trade Management', icon: <ShowChartIcon />, path: '/trades' },
         { text: 'Reports', icon: <AssessmentIcon />, path: '/reports' },
-        { text: 'Settings', icon: <SettingsIcon />, path: '/settings' }, // Example
+        { text: 'Settings', icon: <SettingsIcon />, path: '/settings' },
     ];
+
+    const location = useLocation(); // Get current location
 
     return (
         <Drawer
-            variant="temporary" // Or "permanent" or "persistent" based on design
+            variant="temporary"
             open={isOpen}
             onClose={onClose}
             sx={{
@@ -37,9 +39,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose, drawerWidth = defaul
             <Box sx={{ overflow: 'auto' }}>
                 <List>
                     {menuItems.map((item) => (
-                        <ListItem key={item.text} disablePadding component={RouterLink} to={item.path} sx={{ color: 'inherit', textDecoration: 'none'}}>
-                            <ListItemButton onClick={onClose}> {/* Close sidebar on item click */}
-                                <ListItemIcon>
+                        <ListItem key={item.text} disablePadding component={RouterLink} to={item.path} sx={{ color: 'text.primary', textDecoration: 'none'}}>
+                            <ListItemButton
+                                onClick={onClose}
+                                selected={location.pathname === item.path || (item.path !== "/" && location.pathname.startsWith(item.path))}
+                            >
+                                <ListItemIcon sx={{color: location.pathname.startsWith(item.path) ? 'primary.main' : 'inherit'}}>
                                     {item.icon}
                                 </ListItemIcon>
                                 <ListItemText primary={item.text} />

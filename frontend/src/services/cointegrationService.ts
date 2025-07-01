@@ -79,3 +79,46 @@ export const getPairZScore = async (
         throw new Error(errorMessage);
     }
 };
+
+// import { Moment } from 'moment'; // Or use string for dates if not using moment
+
+export interface HistoricalPairDataRequestFE { // Frontend might use different date types
+    ticker_y: string;
+    ticker_x: string;
+    start_date: string; // ISO "YYYY-MM-DD"
+    end_date: string;   // ISO "YYYY-MM-DD"
+    z_score_window?: number;
+}
+
+export interface HistoricalPairDataResponseFE { // Matches backend response
+    ticker_y: string;
+    ticker_x: string;
+    timestamps: string[]; // Datetime strings from backend
+    prices_y: (number | null)[];
+    prices_x: (number | null)[];
+    spread: (number | null)[];
+    spread_mean: (number | null)[];
+    spread_std_dev_upper_1: (number | null)[];
+    spread_std_dev_lower_1: (number | null)[];
+    spread_std_dev_upper_2: (number | null)[];
+    spread_std_dev_lower_2: (number | null)[];
+    z_score: (number | null)[];
+    calculated_hedge_ratio_beta_x?: number | null;
+    error?: string | null;
+}
+
+export const getHistoricalPairData = async (
+    params: HistoricalPairDataRequestFE
+): Promise<HistoricalPairDataResponseFE> => {
+    try {
+        const response = await apiClient.post<HistoricalPairDataResponseFE>('/cointegration/pair_historical_data', params);
+        return response.data;
+    } catch (error) {
+        const axiosError = error as AxiosError;
+        const errorMessage = (axiosError.response?.data as any)?.detail ||
+                             axiosError.message ||
+                             'Failed to fetch historical pair data.';
+        console.error("Error in getHistoricalPairData:", errorMessage, axiosError.response);
+        throw new Error(errorMessage); // Rethrow to be caught by component
+    }
+};

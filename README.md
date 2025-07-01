@@ -16,8 +16,8 @@ This application is designed as a robust, intuitive, and highly customizable too
 
 ### 📊 Interactive Dashboard
 *   **Real-Time Metrics**: Visualization of performance, P&L, and trading statistics. (Future)
-*   **Dynamic Charts**: Historical ratio with Z-Score bands for identified pairs. (Basic Z-score chart implemented)
-*   **Current Opportunities**: List of pairs with active trading signals.
+    *   **Dynamic Charts**: Historical spread and Z-Score charts for selected pairs with interactive controls (date range, Z-score window).
+    *   **Current Opportunities**: List of pairs with active trading signals (based on Z-Score).
 *   **Performance Tracking**: Historical results tracking. (Future)
 
 ### 💼 Trade Management
@@ -28,14 +28,15 @@ This application is designed as a robust, intuitive, and highly customizable too
 
 ### 📈 Automated Reports
 *   **Daily/Weekly Reports**: Automatic performance summaries. (Backend logic placeholder, UI exists)
-*   **Backtesting Reports**: Historical strategy analysis. (Backend logic placeholder, UI exists)
+    *   **Backtesting Reports**: Analysis of Z-score based strategies using historical market data, with key performance metrics and equity curve visualization.
 *   **Email Distribution**: Automatic report distribution. (Future)
-*   **Export**: Multiple formats (PDF, CSV, Excel). (Placeholder file generation)
+    *   **Export**: Multiple formats (PDF, CSV). (Placeholder file generation for report data)
 
 ## 🛠️ Technologies Utilized
 
 ### Backend
 *   **FastAPI**: Modern, fast web framework for building APIs.
+    *   **Alpha Vantage API, yfinance library**: For real market data integration.
 *   **SQLAlchemy**: ORM for Python.
 *   **PostgreSQL**: Main relational database.
 *   **Redis**: Cache, message broker for Celery.

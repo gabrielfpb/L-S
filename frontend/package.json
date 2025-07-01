@@ -16,7 +16,9 @@
     "react-router-dom": "^6.11.2",
     "react-scripts": "5.0.1",
     "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
+    "web-vitals": "^2.1.4",
+    "@mui/x-date-pickers": "^6.0.0", # Check for latest compatible version with MUI v5
+    "moment": "^2.29.4"
   },
   "scripts": {
     "start": "react-scripts start",

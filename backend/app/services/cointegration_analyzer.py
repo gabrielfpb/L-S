@@ -162,3 +162,128 @@ def identify_cointegrated_pairs(
                    f"Skipped: {', '.join(skipped_tickers) or 'None'}. "
                    f"Found {len(results)} cointegrated (Y,X) configs.")
     return {"summary": summary_msg, "pairs": results, "processed_tickers_count": processed_count}
+
+
+from sqlalchemy.orm import Session # Added for type hinting db session
+from .data_collector import fetch_historical_data # Use the real data fetcher
+# pandas and numpy are already imported at the top
+
+# Ensure MIN_OBS_FOR_API_EG_TEST is defined or accessible in this file
+# It was defined in cointegration_routes.py, so might need to be moved to a shared consts file or config
+MIN_OBS_FOR_API_EG_TEST = 20 # Define it here for now, ideally from a shared consts module
+
+
+def get_historical_pair_data_for_charting(
+    db: Session,
+    ticker_y: str,
+    ticker_x: str,
+    start_date: datetime.date,
+    end_date: datetime.date,
+    z_score_window: int = 20,
+    provided_hedge_ratio: Optional[float] = None
+) -> Dict[str, Any]:
+    """
+    Retrieves and processes historical data for a pair of tickers (Y, X) to be used in charting.
+
+    This function performs the following steps:
+    1. Fetches historical price data for `ticker_y` and `ticker_x` for the given date range.
+    2. Aligns the data to common timestamps.
+    3. Calculates the hedge ratio (Beta of X in Y = Beta*X + const) using Engle-Granger test
+       on the initial segment of the data if `provided_hedge_ratio` is None.
+    4. Calculates the spread series (Y - Beta*X).
+    5. Calculates the rolling mean of the spread, Z-Score bands (+/-1 and +/-2 std dev),
+       and the rolling Z-Score of the spread, using the specified `z_score_window`.
+
+    Args:
+        db: SQLAlchemy database session (currently unused but kept for future potential use,
+            e.g., fetching pre-calculated hedge ratios or other metadata).
+        ticker_y: Ticker symbol for the dependent asset (Y).
+        ticker_x: Ticker symbol for the independent asset (X).
+        start_date: Start date for the historical data period.
+        end_date: End date for the historical data period.
+        z_score_window: The rolling window size for Z-score and band calculations. Defaults to 20.
+        provided_hedge_ratio: Optional pre-calculated hedge ratio. If None, it's recalculated.
+
+    Returns:
+        A dictionary containing various time series (prices, spread, mean, bands, Z-score)
+        as lists of floats/None, a common list of timestamps (as datetime objects),
+        the calculated hedge ratio, and an optional "error" key if issues occur.
+        Keys in the dictionary align with `HistoricalPairDataResponse` Pydantic schema.
+    """
+    try:
+        start_date_str = start_date.isoformat()
+        end_date_str = end_date.isoformat()
+
+        # 1. Fetch historical price data for both tickers
+        df_y_full = fetch_historical_data(ticker_y, start_date_str, end_date_str)
+        df_x_full = fetch_historical_data(ticker_x, start_date_str, end_date_str)
+
+        if df_y_full.empty or 'price' not in df_y_full.columns:
+            return {"error": f"No price data found for {ticker_y} in the given range."}
+        if df_x_full.empty or 'price' not in df_x_full.columns:
+            return {"error": f"No price data found for {ticker_x} in the given range."}
+
+        series_y_price = df_y_full['price']
+        series_x_price = df_x_full['price']
+
+        # 2. Align data by timestamp (inner join to get common dates)
+        aligned_df = pd.concat([series_y_price.rename('Y'), series_x_price.rename('X')], axis=1, join='inner').dropna()
+        if len(aligned_df) < z_score_window:
+             return {"error": f"Not enough overlapping data points ({len(aligned_df)}) for Z-score window ({z_score_window})."}
+
+        s_y = aligned_df['Y']
+        s_x = aligned_df['X']
+
+        # 3. Determine Hedge Ratio (Beta of X)
+        beta_x = provided_hedge_ratio
+        if beta_x is None:
+            if len(s_y) < MIN_OBS_FOR_API_EG_TEST:
+                 return {"error": f"Not enough data ({len(s_y)}) to reliably calculate hedge ratio for charting period."}
+
+            eg_test_result = run_engle_granger_test(s_y, s_x)
+            if eg_test_result.get("error"):
+                return {"error": f"Hedge ratio calculation failed: {eg_test_result.get('error')}"}
+            beta_x = eg_test_result.get("beta_coefficient")
+            if beta_x is None: # Should not happen if no error from run_engle_granger_test and params are valid
+                return {"error": "Could not determine hedge ratio (beta_x is None from EG test)."}
+
+        # 4. Calculate Spread: Y - beta*X
+        spread = calculate_pair_value(s_y, s_x, beta_x=beta_x)
+        if spread.empty:
+            return {"error": "Spread calculation resulted in empty series."}
+
+        # 5. Calculate Rolling Mean, Std Dev for bands, and Z-Score for the spread
+        if len(spread) < z_score_window: # Check again after spread calculation (though index should be same as s_y, s_x)
+            return {"error": f"Spread series too short ({len(spread)}) for Z-score window ({z_score_window})."}
+
+        spread_mean = spread.rolling(window=z_score_window, min_periods=z_score_window).mean()
+        spread_std = spread.rolling(window=z_score_window, min_periods=z_score_window).std()
+
+        z_score_series = (spread - spread_mean) / spread_std
+        z_score_series.replace([np.inf, -np.inf], np.nan, inplace=True)
+
+        final_index = spread_mean.dropna().index
+
+        def to_list_safe(series: Optional[pd.Series], idx: pd.Index) -> List[Optional[float]]:
+            if series is None or series.empty: return [None] * len(idx)
+            return series.reindex(idx).replace({np.nan: None}).tolist()
+
+        return {
+            "ticker_y": ticker_y,
+            "ticker_x": ticker_x,
+            "timestamps": final_index.to_pydatetime().tolist(),
+            "prices_y": to_list_safe(s_y, final_index),
+            "prices_x": to_list_safe(s_x, final_index),
+            "spread": to_list_safe(spread, final_index),
+            "spread_mean": to_list_safe(spread_mean, final_index),
+            "spread_std_dev_upper_1": to_list_safe(spread_mean + spread_std, final_index),
+            "spread_std_dev_lower_1": to_list_safe(spread_mean - spread_std, final_index),
+            "spread_std_dev_upper_2": to_list_safe(spread_mean + 2 * spread_std, final_index),
+            "spread_std_dev_lower_2": to_list_safe(spread_mean - 2 * spread_std, final_index),
+            "z_score": to_list_safe(z_score_series, final_index),
+            "calculated_hedge_ratio_beta_x": beta_x
+        }
+
+    except Exception as e:
+        # import traceback; traceback.print_exc() # Uncomment for server-side debugging
+        return {"error": f"Failed to get historical pair data: {str(e)}"}

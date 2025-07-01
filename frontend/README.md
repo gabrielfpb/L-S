@@ -6,9 +6,16 @@ This directory contains the React (with TypeScript and Material-UI) frontend app
 The frontend provides the user interface for interacting with the Long & Short Quant application, including:
 *   User Authentication (Login, Registration pages)
 *   Protected Routes for authenticated sections
-*   Cointegration Dashboard (Pair identification, Z-Score viewing, basic charts)
-*   Trade Management (Listing, Creating, Closing trades)
-*   Reporting (Requesting summary/backtest reports, Listing generated reports with download links)
+    *   Cointegration Dashboard:
+        *   Pair identification.
+        *   Features advanced interactive Plotly charts for historical spread, mean, Z-Score bands, and Z-Score series.
+        *   Includes date range and Z-score window customization.
+        *   Supports manual refresh of Z-Scores in the identified pairs table.
+    *   Trade Management (Listing with client-side sort/pagination, Creating, Closing trades)
+    *   Reporting:
+        *   Requesting summary and backtest reports with detailed parameters.
+        *   Listing generated reports with download links.
+        *   Displays detailed backtest results including key performance metrics and an equity curve chart.
 *   A responsive layout with Navbar and Sidebar for navigation.
 
 ## Local Development (Without Docker)

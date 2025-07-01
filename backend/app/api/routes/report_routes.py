@@ -43,11 +43,12 @@ async def generate_summary_report_endpoint(
         status_check_url=f"/api/v1/tasks/status/{task.id}"
     )
 
-@router.post("/generate_summary", response_model=ReportGenerationResponse, status_code=status.HTTP_202_ACCEPTED,
-             summary="Queue Summary Report Generation",
-             description="Queues a Celery task to generate a performance summary report (e.g., DAILY, WEEKLY). "
-                         "A `ReportMetadata` entry is created, and the Celery task ID is returned along with a URL to check its status.")
-async def generate_backtest_report_endpoint(
+@router.post("/generate_backtest", response_model=ReportGenerationResponse, status_code=status.HTTP_202_ACCEPTED,
+             summary="Queue Backtest Report Generation",
+             description="Queues a Celery task to generate a backtest report for a specified strategy and asset pair(s). "
+                         "Requires tickers, date range, and strategy parameters like Z-score window and thresholds. "
+                         "Returns a task ID for status tracking and the ID of the created report metadata entry.")
+async def generate_backtest_report_endpoint( # This function name was correct, but the route path above was wrong in previous diff
     request_data: GenerateBacktestReportRequestSchema,
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_active_user)

@@ -18,13 +18,17 @@ export interface GenerateSummaryReportRequest {
     // Add other params if needed, e.g., specific date for daily
 }
 
-export interface GenerateBacktestReportRequest {
+export interface GenerateBacktestReportRequest { // Matches backend expectations more closely
+    report_name?: string | null; // Optional name for the report
     strategy_name: string;
-    tickers: string[];
+    tickers: string[]; // Pair of tickers [Y, X]
     start_date: string; // ISO Date string "YYYY-MM-DD"
-    end_date: string; // ISO Date string "YYYY-MM-DD"
+    end_date: string;   // ISO Date string "YYYY-MM-DD"
     initial_capital?: number;
-    // Add other strategy-specific parameters
+    z_score_window?: number;
+    entry_z_threshold?: number;
+    exit_z_threshold?: number;
+    // Any other params the backend might expect within its `params` dict for generate_backtest_data
 }
 
 export interface TaskInfo { // Generic response for starting a task
