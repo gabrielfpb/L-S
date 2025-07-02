@@ -11,8 +11,9 @@ import NotFoundPage from './pages/NotFoundPage';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { AuthProvider } from './contexts/AuthContext';
-import RegisterPage from './pages/RegisterPage'; // Import RegisterPage
-import ProtectedRoute from './components/auth/ProtectedRoute'; // Import ProtectedRoute
+// import RegisterPage from './pages/RegisterPage'; // Already imported
+// import ProtectedRoute from './components/auth/ProtectedRoute'; // Already imported
+import { NotificationProvider } from './contexts/NotificationContext'; // Import NotificationProvider
 
 const theme = createTheme({
     palette: {
@@ -31,9 +32,10 @@ function App() {
             <CssBaseline />
             <Router>
                 <AuthProvider>
-                    <Layout>
-                        <Routes>
-                            <Route path="/" element={<HomePage />} />
+                    <NotificationProvider> {/* Wrap with NotificationProvider */}
+                        <Layout>
+                            <Routes>
+                                <Route path="/" element={<HomePage />} />
                             <Route path="/login" element={<LoginPage />} />
                             <Route path="/register" element={<RegisterPage />} /> {/* Add register route */}
 
@@ -48,6 +50,7 @@ function App() {
                             <Route path="*" element={<NotFoundPage />} />
                         </Routes>
                     </Layout>
+                    </NotificationProvider>
                 </AuthProvider>
             </Router>
         </ThemeProvider>

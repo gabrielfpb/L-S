@@ -12,11 +12,19 @@ The frontend provides the user interface for interacting with the Long & Short Q
         *   Includes date range and Z-score window customization.
         *   Supports manual refresh of Z-Scores in the identified pairs table.
     *   Trade Management (Listing with client-side sort/pagination, Creating, Closing trades)
-    *   Reporting:
-        *   Requesting summary and backtest reports with detailed parameters.
-        *   Listing generated reports with download links.
-        *   Displays detailed backtest results including key performance metrics and an equity curve chart.
+    *   Reporting Page:
+        *   Allows users to request the generation of summary performance reports and detailed backtest reports.
+        *   **Dynamic Status Updates**: For reports being generated asynchronously, the page polls the backend for status updates. Users can see if their report is "PENDING", "PROCESSING", "COMPLETED", or "FAILED" directly in the reports list without manual refreshes.
+        *   Displays detailed results for completed backtests, including key performance metrics and an equity curve chart.
+        *   Lists previously generated reports with options to view details or download (placeholder for actual file downloads).
 *   A responsive layout with Navbar and Sidebar for navigation.
+
+### Global Notification System
+A global notification system using Material-UI Snackbars provides users with timely feedback for various actions:
+*   Initiation of asynchronous tasks (e.g., report generation).
+*   Completion or failure of background tasks.
+*   Success or failure of operations like login, registration, and trade management.
+Notifications typically appear at the bottom-center of the screen and auto-hide.
 
 ## Local Development (Without Docker)
 

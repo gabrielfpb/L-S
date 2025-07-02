@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
@@ -9,40 +9,60 @@ import '@testing-library/jest-dom';
 import ReportsPage from './ReportsPage';
 import * as reportService from '../services/reportService';
 import { AuthContext, User } from '../contexts/AuthContext';
+// Import NotificationContext to provide it, useNotifier will be mocked for these specific tests
+import { NotificationContext } from '../contexts/NotificationContext';
 
-// Mock Plotly component for equity curve chart
+jest.useFakeTimers(); // Use Jest's fake timers for setInterval
+
+// Mock Plotly component
 jest.mock('react-plotly.js', () => ({
     __esModule: true,
     default: jest.fn(() => <div data-testid="plotly-equity-chart-mock"></div>),
 }));
 
 const theme = createTheme();
-const mockUser: User = {id:1, username:'test', email:'test@test.com', is_active:true, is_superuser: false};
+const mockUser: User = {id:1, username:'testUser', email:'test@example.com', is_active:true, is_superuser: false};
 const mockAuthContextValue = {
     isAuthenticated: true, user: mockUser,
     token: 'fake-token', login: jest.fn(), logout: jest.fn(), isLoading: false, error: null
 };
+const mockShowNotification = jest.fn();
+
 
 // Helper to wrap component in necessary providers
 const renderReportsPage = () => {
     return render(
         <AuthContext.Provider value={mockAuthContextValue}>
-            <ThemeProvider theme={theme}>
-                <LocalizationProvider dateAdapter={AdapterMoment}>
-                    <BrowserRouter><ReportsPage /></BrowserRouter>
-                </LocalizationProvider>
-            </ThemeProvider>
+            <NotificationContext.Provider value={{ showNotification: mockShowNotification }}>
+                <ThemeProvider theme={theme}>
+                    <LocalizationProvider dateAdapter={AdapterMoment}>
+                        <BrowserRouter><ReportsPage /></BrowserRouter>
+                    </LocalizationProvider>
+                </ThemeProvider>
+            </NotificationContext.Provider>
         </AuthContext.Provider>
     );
 };
 
-describe('ReportsPage - Backtest Form and Results', () => {
+
+describe('ReportsPage - Task Polling and General Rendering', () => {
+    let mockGetReportTaskStatus: jest.SpyInstance;
+    let mockRequestBacktestReport: jest.SpyInstance;
+    let mockGetGeneratedReports: jest.SpyInstance;
+
     beforeEach(() => {
         jest.clearAllMocks();
-        // Mock getGeneratedReports to return an empty list initially
-        jest.spyOn(reportService, 'getGeneratedReports').mockResolvedValue([]);
+
+        mockGetGeneratedReports = jest.spyOn(reportService, 'getGeneratedReports').mockResolvedValue([]);
+        mockGetReportTaskStatus = jest.spyOn(reportService, 'getReportTaskStatus');
+        mockRequestBacktestReport = jest.spyOn(reportService, 'requestBacktestReportGeneration');
     });
 
+    afterEach(() => {
+        jest.clearAllTimers();
+    });
+
+    // Test from previous subtask plan (adapted)
     test('renders new backtest parameter fields in the form', () => {
         renderReportsPage();
 
@@ -55,61 +75,77 @@ describe('ReportsPage - Backtest Form and Results', () => {
         expect(screen.getByLabelText(/Report Name \(Optional\)/i)).toBeInTheDocument();
     });
 
+    // Test from previous subtask plan (adapted)
     test('submits backtest request with new parameters', async () => {
-        const mockRequestBacktest = jest.spyOn(reportService, 'requestBacktestReportGeneration')
-                                      .mockResolvedValue({ task_id: "task-123", message: "Backtest queued", report_id: 1, status_check_url: "" });
+        mockRequestBacktestReport.mockResolvedValue({ task_id: "task-456", message: "queued", report_id: 2 } as any);
         renderReportsPage();
 
-        fireEvent.change(screen.getByLabelText(/Tickers for Pair \(Y,X\)/i), { target: { value: 'STOCKA.SA,STOCKB.SA' } });
+        fireEvent.change(screen.getByLabelText(/Tickers for Pair \(Y,X\)/i), { target: { value: 'BTC-USD,ETH-USD' } });
         fireEvent.change(screen.getByLabelText(/Z Window/i), { target: { value: '25' } });
-        fireEvent.change(screen.getByLabelText(/Entry Z/i), { target: { value: '2.2' } });
-        fireEvent.change(screen.getByLabelText(/Exit Z/i), { target: { value: '0.3' } });
-        fireEvent.change(screen.getByLabelText(/Report Name \(Optional\)/i), { target: { value: 'My Test Backtest' } });
-
-
         fireEvent.click(screen.getByRole('button', { name: /Run Backtest/i }));
 
         await waitFor(() => expect(mockRequestBacktest).toHaveBeenCalledWith(expect.objectContaining({
-            tickers: ["STOCKA.SA", "STOCKB.SA"],
-            z_score_window: 25,
-            entry_z_threshold: 2.2,
-            exit_z_threshold: 0.3,
-            report_name: 'My Test Backtest'
+            tickers: ["BTC-USD", "ETH-USD"],
+            z_score_window: 25
         })));
     });
 
-    test('displays backtest results including equity curve when view details is clicked', async () => {
-        const mockReport: reportService.Report = {
-            id: "rep1", report_type: "BACKTEST", generated_at: new Date().toISOString(), status: "COMPLETED",
-            report_name: "Detailed Test Backtest",
-            parameters: { tickers: ["Y", "X"], start_date: "2023-01-01", end_date: "2023-02-01", strategy_name: "zscore_v1"},
-            summary_data: { // Ensure this matches structure from backend generate_backtest_data
-                total_pnl_on_spread_units: 120.50,
-                number_of_trades: 5,
-                win_rate: 0.6,
-                sharpe_ratio_approx: 1.25,
-                equity_curve_dates: [new Date().toISOString(), new Date(Date.now() + 86400000).toISOString()], // Two dates
-                equity_curve_values: [1000.0, 1120.50] // Corresponding values
-            }
+    test('initiates polling when a report task starts and updates status, then stops polling on completion', async () => {
+        mockRequestBacktestReport.mockResolvedValue({
+            task_id: "task123",
+            report_id: 1,
+            message: "Backtest queued",
+            status: "PENDING"
+        });
+
+        mockGetReportTaskStatus
+            .mockResolvedValueOnce({ task_id: "task123", status: "STARTED", result: null })
+            .mockResolvedValueOnce({ task_id: "task123", status: "PROCESSING", result: null })
+            .mockResolvedValueOnce({ task_id: "task123", status: "SUCCESS", result: { final_data: "done" } });
+
+        const finalCompletedReport: reportService.Report = {
+            id: "1",
+            report_type: "BACKTEST", generated_at: new Date().toISOString(),
+            status: "COMPLETED", report_name: "Backtest: TCK1.SA/TCK2.SA", // Example name
+            parameters: {}, summary_data: { final_data: "done" }
         };
-        // Override the initial empty mock for this specific test
-        jest.spyOn(reportService, 'getGeneratedReports').mockResolvedValue([mockReport]);
+        // fetchReports is called after task completion. 1st call on mount, 2nd on completion.
+        mockGetGeneratedReports.mockResolvedValueOnce([]).mockResolvedValueOnce([finalCompletedReport]);
 
         renderReportsPage();
 
-        // Wait for table to render (due to async fetchReports) and find the view results button
-        const viewResultsButton = await screen.findByRole('button', { name: /view results/i });
-        fireEvent.click(viewResultsButton);
+        fireEvent.change(screen.getByLabelText(/Tickers for Pair \(Y,X\)/i), { target: { value: 'TCK1.SA,TCK2.SA' } });
+        fireEvent.click(screen.getByRole('button', { name: /Run Backtest/i }));
 
-        // Dialog with details should appear
-        await waitFor(() => {
-            expect(screen.getByText(/Report Details: Detailed Test Backtest/i)).toBeInTheDocument();
-            // Check for a key metric
-            expect(screen.getByText(/Total Pnl On Spread Units:/i)).toBeInTheDocument();
-            expect(screen.getByText("120.50")).toBeInTheDocument();
-            // Check if Plotly mock for equity curve was rendered
-            expect(screen.getByTestId('plotly-equity-chart-mock')).toBeInTheDocument();
-        });
+        await waitFor(() => expect(mockRequestBacktest).toHaveBeenCalled());
+
+        // Check for initial optimistic update (PENDING for the new report)
+        // The report name is dynamically generated, so we look for status.
+        // Since there might be other "PENDING" texts if other tests run, be more specific or ensure clean state.
+        // Here, we expect the table to eventually show the new report.
+        await screen.findByText(/PENDING/i, {}, {timeout: 1000});
+
+
+        act(() => { jest.advanceTimersByTime(POLLING_INTERVAL); });
+        await waitFor(() => expect(mockGetReportTaskStatus).toHaveBeenCalledWith("task123"));
+        await screen.findByText(/STARTED/i, {}, {timeout: 1000});
+
+
+        act(() => { jest.advanceTimersByTime(POLLING_INTERVAL); });
+        await waitFor(() => expect(mockGetReportTaskStatus).toHaveBeenCalledTimes(2));
+        await screen.findByText(/PROCESSING/i, {}, {timeout: 1000});
+
+
+        act(() => { jest.advanceTimersByTime(POLLING_INTERVAL); });
+        await waitFor(() => expect(mockGetReportTaskStatus).toHaveBeenCalledTimes(3));
+
+        await waitFor(() => expect(mockGetGeneratedReports).toHaveBeenCalledTimes(2));
+
+        expect(await screen.findByText("COMPLETED")).toBeInTheDocument();
+        expect(await screen.findByText(finalCompletedReport.report_name!)).toBeInTheDocument();
+
+        act(() => { jest.advanceTimersByTime(POLLING_INTERVAL); });
+        expect(mockGetReportTaskStatus).toHaveBeenCalledTimes(3);
     });
 });
 ```

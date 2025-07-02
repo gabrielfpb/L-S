@@ -8,7 +8,8 @@ import {
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import AssessmentIcon from '@mui/icons-material/Assessment'; // For View Results
+import AssessmentIcon from '@mui/icons-material/Assessment';
+import AccessTimeIcon from '@mui/icons-material/AccessTime'; // For PENDING status icon
 import Plot from 'react-plotly.js';
 import { DatePicker, LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterMoment } from '@mui/x-date-pickers/AdapterMoment';
@@ -16,10 +17,19 @@ import moment, { Moment } from 'moment';
 
 import * as reportService from '../services/reportService';
 import { useAuth } from '../contexts/AuthContext';
+import { useNotifier } from '../contexts/NotificationContext'; // Import useNotifier
+
+interface ActiveReportTask {
+    reportId: number;
+    taskId: string;
+    reportName?: string | null;
+}
+
+const POLLING_INTERVAL = 5000; // 5 seconds
 
 const ReportsPage: React.FC = () => {
     const [reports, setReports] = useState<reportService.Report[]>([]);
-    const [isLoading, setIsLoading] = useState<boolean>(false);
+    const [isLoading, setIsLoading] = useState<boolean>(false); // For main list loading
     const [error, setError] = useState<string | null>(null);
     const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -27,68 +37,160 @@ const ReportsPage: React.FC = () => {
 
     const [summaryReportType, setSummaryReportType] = useState<"DAILY" | "WEEKLY">("DAILY");
 
-    // State for Backtest Report Request Form
     const initialBacktestParams: reportService.GenerateBacktestReportRequest = {
-        report_name: '', // Optional user-defined name for the report instance
-        strategy_name: 'zscore_mean_reversion_v1', // Default strategy identifier for the backend
-        tickers: [], // Expects an array of two strings, e.g., ["PETR4.SA", "VALE3.SA"]
-        start_date: moment().subtract(1, 'year').format('YYYY-MM-DD'), // Default: one year ago
-        end_date: moment().format('YYYY-MM-DD'), // Default: today
+        report_name: '',
+        strategy_name: 'zscore_mean_reversion_v1',
+        tickers: [],
+        start_date: moment().subtract(1, 'year').format('YYYY-MM-DD'),
+        end_date: moment().format('YYYY-MM-DD'),
         initial_capital: 100000,
         z_score_window: 20,
         entry_z_threshold: 2.0,
         exit_z_threshold: 0.5,
     };
     const [backtestParams, setBacktestParams] = useState<reportService.GenerateBacktestReportRequest>(initialBacktestParams);
-    const [backtestTickersInput, setBacktestTickersInput] = useState<string>(''); // User input for tickers, comma-separated for easy input
+    const [backtestTickersInput, setBacktestTickersInput] = useState<string>('');
 
-    // State for Report Details Dialog (viewing results of a selected report)
     const [selectedReportDetails, setSelectedReportDetails] = useState<reportService.Report | null>(null);
     const [openReportDetailsDialog, setOpenReportDetailsDialog] = useState(false);
     const [equityCurveData, setEquityCurveData] = useState<any[]>([]);
     const [equityCurveLayout, setEquityCurveLayout] = useState<any>({});
 
-    /**
-     * Fetches the list of all generated reports from the backend.
-     * Uses useCallback to memoize the function, re-fetching if isAuthenticated changes.
-     */
+    // State to keep track of report generation tasks currently being processed by Celery.
+    // Each object contains the report's database ID and the Celery task ID for polling.
+    const [activeReportTasks, setActiveReportTasks] = useState<ActiveReportTask[]>([]);
+    // Flag to manage the polling interval's active state to prevent multiple intervals.
+    const [isPolling, setIsPolling] = useState<boolean>(false);
+    const notifier = useNotifier();
+
+    const updateReportInList = (updatedReportData: Partial<reportService.Report> & { id: number | string }) => {
+        setReports(prevReports =>
+            prevReports.map(report =>
+                String(report.id) === String(updatedReportData.id) ? { ...report, ...updatedReportData } : report
+            )
+        );
+    };
+
     const fetchReports = useCallback(async () => {
-        if (!isAuthenticated) return; // Do not fetch if user is not logged in
+        if (!isAuthenticated) return;
         setIsLoading(true);
         setError(null);
-        // setSuccessMessage(null); // Optionally clear success messages on each refresh action
         try {
             const fetchedReports = await reportService.getGeneratedReports();
             setReports(fetchedReports);
         } catch (err: any) {
             setError(err.message || 'Failed to fetch reports list.');
-            setReports([]); // Clear any previously loaded reports on error
+            setReports([]);
         } finally {
             setIsLoading(false);
         }
-    }, [isAuthenticated]); // Re-run if authentication status changes
+    }, [isAuthenticated]);
 
     useEffect(() => {
-        fetchReports(); // Initial fetch when the component mounts (if authenticated)
+        fetchReports();
     }, [fetchReports]);
 
-    /**
-     * Handles the request to generate a summary report (Daily/Weekly).
-     */
+
+    // Effect hook to manage the polling interval for active report tasks.
+    // It starts an interval when there are active tasks and isPolling is false.
+    // The interval polls the status of each active task and updates the UI accordingly.
+    // It stops polling for tasks that reach a terminal state (SUCCESS/FAILURE) and
+    // then refreshes the entire reports list to get final, authoritative metadata.
+    // The interval is cleared when no tasks are active or when the component unmounts.
+    useEffect(() => {
+        let intervalId: NodeJS.Timeout | null = null;
+
+        if (activeReportTasks.length > 0 && !isPolling) {
+            setIsPolling(true);
+
+            intervalId = setInterval(async () => {
+                console.log("Polling for active report tasks:", activeReportTasks.map(t => t.taskId)); // For debugging
+                let stillActiveTasks: ActiveReportTask[] = [];
+                let refreshListNeeded = false;
+
+                for (const activeTask of activeReportTasks) {
+                    try {
+                        const taskStatus = await reportService.getReportTaskStatus(activeTask.taskId);
+
+                        const currentStatus = taskStatus.status?.toUpperCase(); // Normalize status
+
+                        if (currentStatus === "SUCCESS" || currentStatus === "FAILURE") {
+                            console.log(`Task ${activeTask.taskId} (Report ID ${activeTask.reportId}) completed with status: ${currentStatus}`);
+                            refreshListNeeded = true;
+                            notifier.showNotification(
+                                `Report '${activeTask.reportName || activeTask.reportId}' ${currentStatus === "SUCCESS" ? "completed successfully" : "failed"}. ${currentStatus === "FAILURE" && taskStatus.result ? String(taskStatus.result).substring(0,100) : '' }`,
+                                currentStatus === "SUCCESS" ? "success" : "error"
+                            );
+                        } else if (currentStatus === "PENDING" || currentStatus === "STARTED" || currentStatus === "PROCESSING") {
+                            stillActiveTasks.push(activeTask);
+                            updateReportInList({ id: activeTask.reportId, status: currentStatus });
+                        } else {
+                            console.warn(`Task ${activeTask.taskId} has unknown status: ${taskStatus.status}`);
+                            stillActiveTasks.push(activeTask); // Keep polling for unknown status for now
+                        }
+                    } catch (err: any) {
+                        console.error(`Error polling status for task ${activeTask.taskId}:`, err);
+                        stillActiveTasks.push(activeTask); // Keep polling even if one poll fails
+                        // setError(`Polling failed for task ${activeTask.taskId}.`); // This might be too noisy
+                    }
+                }
+
+                setActiveReportTasks(stillActiveTasks);
+
+                if (refreshListNeeded) {
+                    console.log("A task finished or failed, refreshing the reports list.");
+                    fetchReports();
+                }
+
+                if (stillActiveTasks.length === 0) {
+                     setIsPolling(false); // Stop polling if no tasks left
+                }
+
+            }, POLLING_INTERVAL);
+
+        } else if (activeReportTasks.length === 0 && isPolling) {
+            setIsPolling(false); // Explicitly stop if tasks are cleared
+        }
+
+        // Cleanup function for when the component unmounts or dependencies change
+        return () => {
+            if (intervalId) {
+                clearInterval(intervalId);
+            }
+            // Do not set isPolling to false here if intervalId was null and activeReportTasks > 0
+            // as it might prevent the interval from starting on next render.
+            // The conditions at the start of the effect handle setting isPolling.
+            if (activeReportTasks.length === 0) {
+                setIsPolling(false);
+            }
+        };
+    }, [activeReportTasks, fetchReports, isPolling]);
+
+
     const handleRequestSummaryReport = async () => {
         setError(null); setSuccessMessage(null); setIsLoading(true);
         try {
+            const reportName = `Summary ${summaryReportType} (${new Date().toLocaleDateString()})`;
             const result = await reportService.requestSummaryReportGeneration({ report_type: summaryReportType });
-            setSuccessMessage(result.message || `Requested ${summaryReportType.toLowerCase()} summary. Task ID: ${result.task_id}.`);
-            fetchReports(); // Refresh the list of reports to show the new PENDING report
-        } catch (err: any) { setError(err.message || 'Failed to request summary report.');
+            // setSuccessMessage(result.message || `Requested ${summaryReportType.toLowerCase()} summary. Task ID: ${result.task_id}. Monitoring status...`);
+            notifier.showNotification(`Summary report (${summaryReportType}) generation started. Task ID: ${result.task_id}`, 'info');
+
+            const newReportEntry: reportService.Report = {
+                id: String(result.report_id), // Ensure ID is string if service returns number but state expects string
+                report_type: `${summaryReportType.toUpperCase()}_SUMMARY`,
+                generated_at: new Date().toISOString(), status: result.status || "PENDING",
+                report_name: reportName,
+            };
+            setReports(prev => [newReportEntry, ...prev.filter(r => String(r.id) !== String(newReportEntry.id))]); // Add or update
+            setActiveReportTasks(prev => [...prev.filter(t => t.reportId !== result.report_id), { reportId: result.report_id, taskId: result.task_id, reportName }]);
+
+        } catch (err: any) {
+            const errorMsg = err.message || 'Failed to request summary report.';
+            setError(errorMsg);
+            notifier.showNotification(errorMsg, 'error');
         } finally { setIsLoading(false); }
     };
 
-    /**
-     * Generic handler for changes in the backtest parameter form fields.
-     * Updates the `backtestParams` state based on input name and value.
-     */
     const handleBacktestParamsChange = (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement> | SelectChangeEvent<string>) => {
         const { name, value } = event.target;
         const numFields = ['initial_capital', 'z_score_window', 'entry_z_threshold', 'exit_z_threshold'];
@@ -96,59 +198,46 @@ const ReportsPage: React.FC = () => {
         setBacktestParams(prev => ({ ...prev, [name as string]: parsedValue }));
     };
 
-    /**
-     * Handler for date changes in the backtest form (Start Date, End Date).
-     * @param field - The specific date field to update ('start_date' or 'end_date').
-     * @returns A function that takes a Moment date object (or null) and updates the state.
-     */
     const handleBacktestDateChange = (field: 'start_date' | 'end_date') => (date: Moment | null) => {
         setBacktestParams(prev => ({ ...prev, [field]: date ? date.format('YYYY-MM-DD') : initialBacktestParams[field] }));
     };
 
-    /**
-     * Handler for ticker input changes in the backtest form.
-     * Updates both the raw input string and the parsed tickers array in `backtestParams`.
-     */
     const handleBacktestTickersChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         setBacktestTickersInput(event.target.value);
         const tickersArray = event.target.value.split(',').map(t => t.trim().toUpperCase()).filter(t => t);
         setBacktestParams(prev => ({ ...prev, tickers: tickersArray }));
     };
 
-    /**
-     * Handles the request to generate a backtest report.
-     * Performs client-side validation before calling the report generation service.
-     */
     const handleRequestBacktestReport = async () => {
         setError(null); setSuccessMessage(null);
-        // Basic client-side validation
-        if (backtestParams.tickers.length !== 2) {
-            setError("Backtesting requires exactly one pair of two tickers (Y,X). Please provide comma-separated tickers.");
-            return;
-        }
-        if (!backtestParams.start_date || !backtestParams.end_date) {
-            setError("Start date and end date are required for backtest.");
-            return;
-        }
+        if (backtestParams.tickers.length !== 2) { setError("Backtesting requires exactly one pair of two tickers (Y,X)."); return; }
+        if (!backtestParams.start_date || !backtestParams.end_date) { setError("Start date and end date are required for backtest."); return; }
+
         setIsLoading(true);
         try {
-            const paramsToSubmit = {
-                ...backtestParams,
-                report_name: backtestParams.report_name || `Backtest ${backtestParams.tickers.join('-')} ${new Date().toISOString().split('T')[0]}`
-            };
+            const reportName = backtestParams.report_name ||
+                               `Backtest: ${backtestParams.tickers.join('/')} (${backtestParams.strategy_name.substring(0,10)}...) ${new Date().toLocaleDateString()}`;
+            const paramsToSubmit = { ...backtestParams, report_name: reportName };
+
             const result = await reportService.requestBacktestReportGeneration(paramsToSubmit);
-            setSuccessMessage(result.message || `Requested backtest for ${paramsToSubmit.strategy_name}. Task ID: ${result.task_id}.`);
-            fetchReports(); // Refresh list
-        } catch (err: any) { setError(err.message || 'Failed to request backtest report.');
+            // setSuccessMessage(result.message || `Requested backtest for ${reportName}. Task ID: ${result.task_id}. Monitoring status...`);
+            notifier.showNotification(`Backtest report '${reportName}' generation started. Task ID: ${result.task_id}`, 'info');
+
+            const newReportEntry: reportService.Report = {
+                id: String(result.report_id), report_type: "BACKTEST",
+                generated_at: new Date().toISOString(), status: result.status || "PENDING",
+                report_name: reportName, parameters: backtestParams,
+            };
+            setReports(prev => [newReportEntry, ...prev.filter(r => String(r.id) !== String(newReportEntry.id))]);
+            setActiveReportTasks(prev => [...prev.filter(t => t.reportId !== result.report_id), { reportId: result.report_id, taskId: result.task_id, reportName }]);
+
+        } catch (err: any) {
+            const errorMsg = err.message || 'Failed to request backtest report.';
+            setError(errorMsg);
+            notifier.showNotification(errorMsg, 'error');
         } finally { setIsLoading(false); }
     };
 
-    /**
-     * Handles report file downloads.
-     * Constructs download URL or uses provided URL from report metadata.
-     * @param report - The report object containing download URL information.
-     * @param format - The desired file format ('pdf' or 'csv').
-     */
     const handleDownload = (report: reportService.Report, format: 'pdf' | 'csv') => {
         const downloadUrlKey = `download_url_${format}` as keyof reportService.Report;
         const downloadUrl = report[downloadUrlKey];
@@ -161,14 +250,8 @@ const ReportsPage: React.FC = () => {
         }
     };
 
-    /**
-     * Opens the dialog to display detailed results of a selected report.
-     * For backtest reports, it prepares data for an equity curve chart.
-     * @param report - The report object whose details are to be viewed.
-     */
     const handleViewReportDetails = (report: reportService.Report) => {
         setSelectedReportDetails(report);
-
         if (report.report_type === "BACKTEST" && report.summary_data &&
             Array.isArray(report.summary_data.equity_curve_dates) &&
             Array.isArray(report.summary_data.equity_curve_values)) {
@@ -210,13 +293,11 @@ const ReportsPage: React.FC = () => {
         <Container maxWidth="lg">
             <Typography variant="h4" component="h1" gutterBottom sx={{ my: 2 }}>Reports Center</Typography>
 
-            {isLoading && <Box sx={{ display: 'flex', justifyContent: 'center', my: 1 }}><CircularProgress size={24} /></Box>}
+            {isLoading && activeReportTasks.length === 0 && <Box sx={{ display: 'flex', justifyContent: 'center', my: 1 }}><CircularProgress size={24} /></Box>}
             {error && <Alert severity="error" sx={{ my: 2, width: '100%' }} onClose={() => setError(null)}>{error}</Alert>}
             {successMessage && <Alert severity="success" sx={{ my: 2, width: '100%' }} onClose={() => setSuccessMessage(null)}>{successMessage}</Alert>}
 
-            {/* Form Grid: Summary Report and Backtest Report Request Forms */}
             <Grid container spacing={3}>
-                {/* Summary Report Request Form */}
                 <Grid item xs={12} md={6}>
                     <Paper sx={{ p: 2, mb: 3 }}>
                         <Typography variant="h6" gutterBottom>Request Summary Report</Typography>
@@ -228,11 +309,10 @@ const ReportsPage: React.FC = () => {
                                 <MenuItem value="WEEKLY">Weekly Performance</MenuItem>
                             </Select>
                         </FormControl>
-                         <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={handleRequestSummaryReport} disabled={isLoading} sx={{mt:1}}>Generate Summary</Button>
+                         <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={handleRequestSummaryReport} disabled={isLoading && activeReportTasks.length > 0} sx={{mt:1}}>Generate Summary</Button>
                     </Paper>
                 </Grid>
 
-                {/* Backtest Report Request Form */}
                 <Grid item xs={12} md={6}>
                     <Paper sx={{ p: 2, mb: 3 }}>
                         <Typography variant="h6" gutterBottom>Request Backtest Report</Typography>
@@ -249,15 +329,14 @@ const ReportsPage: React.FC = () => {
                             <Grid item xs={12} sm={4}><TextField name="entry_z_threshold" label="Entry Z" type="number" value={backtestParams.entry_z_threshold} onChange={handleBacktestParamsChange} fullWidth margin="normal" InputLabelProps={{ shrink: true }}/></Grid>
                             <Grid item xs={12} sm={4}><TextField name="exit_z_threshold" label="Exit Z" type="number" value={backtestParams.exit_z_threshold} onChange={handleBacktestParamsChange} fullWidth margin="normal" InputLabelProps={{ shrink: true }}/></Grid>
                         </Grid>
-                        <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={handleRequestBacktestReport} disabled={isLoading} sx={{mt:2}}>Run Backtest</Button>
+                        <Button variant="contained" startIcon={<PlayArrowIcon />} onClick={handleRequestBacktestReport} disabled={isLoading && activeReportTasks.length > 0} sx={{mt:2}}>Run Backtest</Button>
                     </Paper>
                 </Grid>
             </Grid>
 
-            {/* Display Area for Generated Reports */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', my: 2 }}>
                 <Typography variant="h5" gutterBottom>Generated Reports</Typography>
-                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchReports} disabled={isLoading}>Refresh List</Button>
+                <Button variant="outlined" startIcon={<RefreshIcon />} onClick={fetchReports} disabled={isLoading && activeReportTasks.length === 0}>Refresh List</Button>
             </Box>
             <TableContainer component={Paper}>
                 <Table size="small">
@@ -276,7 +355,21 @@ const ReportsPage: React.FC = () => {
                                 <TableCell>{report.report_name || report.id}</TableCell>
                                 <TableCell>{report.report_type}</TableCell>
                                 <TableCell>{new Date(report.generated_at).toLocaleString()}</TableCell>
-                                <TableCell>{report.status || 'N/A'}</TableCell>
+                                <TableCell>
+                                    {report.status === "PROCESSING" || report.status === "STARTED" ? (
+                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                            <CircularProgress size={16} sx={{ mr: 1 }} />
+                                            <Typography variant="caption">{report.status}</Typography>
+                                        </Box>
+                                    ) : report.status === "PENDING" ? (
+                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                            <AccessTimeIcon fontSize="inherit" sx={{ mr: 0.5, color: 'text.secondary', width: 16, height: 16 }} />
+                                            <Typography variant="caption">{report.status}</Typography>
+                                        </Box>
+                                    ) : (
+                                        report.status || 'N/A'
+                                    )}
+                                </TableCell>
                                 <TableCell align="center">
                                     {report.status === "COMPLETED" && (
                                         <>
@@ -285,7 +378,7 @@ const ReportsPage: React.FC = () => {
                                         {report.download_url_csv && <Tooltip title="Download CSV"><IconButton size="small" onClick={() => handleDownload(report, 'csv')}><FileDownloadIcon /></IconButton></Tooltip>}
                                         </>
                                     )}
-                                    {(report.status === "PENDING" || report.status === "PROCESSING") && <CircularProgress size={20} titleAccess={report.status} />}
+                                    {/* No specific icon for PENDING here, as it's shown in status column */}
                                     {report.status === "FAILED" && <Tooltip title={report.error_message || "Failed"}><Typography variant="caption" color="error">Failed</Typography></Tooltip>}
                                 </TableCell>
                             </TableRow>
@@ -294,7 +387,6 @@ const ReportsPage: React.FC = () => {
                 </Table>
             </TableContainer>
 
-            {/* Dialog for Displaying Report Details, including Equity Curve */}
             <Dialog open={openReportDetailsDialog} onClose={handleCloseReportDetailsDialog} maxWidth="lg" fullWidth>
                 <DialogTitle>Report Details: {selectedReportDetails?.report_name || selectedReportDetails?.id}</DialogTitle>
                 <DialogContent>

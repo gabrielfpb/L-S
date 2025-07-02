@@ -9,15 +9,17 @@ import { visuallyHidden } from '@mui/utils'; // For screen reader text with Tabl
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import EditIcon from '@mui/icons-material/Edit';
 import HighlightOffIcon from '@mui/icons-material/HighlightOff';
-import { useAuth } from '../contexts/AuthContext'; // To get current user for filtering if needed
-import * as tradeService from '../services/tradeService'; // Import trade service
+import { useAuth } from '../contexts/AuthContext';
+import * as tradeService from '../services/tradeService';
+import { useNotifier } from '../contexts/NotificationContext'; // Import useNotifier
 
 const TradeManagementPage: React.FC = () => {
     const [trades, setTrades] = useState<tradeService.Trade[]>([]);
     const [isLoading, setIsLoading] = useState<boolean>(false);
-    const [error, setError] = useState<string | null>(null);
-    const [successMessage, setSuccessMessage] = useState<string|null>(null); // Added for main page success messages
+    const [error, setError] = useState<string | null>(null); // Main page error
+    // const [successMessage, setSuccessMessage] = useState<string|null>(null); // Will use notifier for success
     const { user, isAuthenticated } = useAuth();
+    const notifier = useNotifier(); // Get showNotification
 
     // Sorting state
     type Order = 'asc' | 'desc';
@@ -185,9 +187,11 @@ const TradeManagementPage: React.FC = () => {
             await tradeService.createTrade(newTradeData);
             handleCreateDialogClose();
             fetchTrades();
-            setSuccessMessage("Trade created successfully!"); // Use main page success for this
+            notifier.showNotification("Trade created successfully!", 'success');
         } catch (err: any) {
-            setCreateTradeError(err.message || 'Failed to create trade.');
+            const errorMsg = err.message || 'Failed to create trade.';
+            setCreateTradeError(errorMsg); // Keep local error for dialog
+            notifier.showNotification(errorMsg, 'error'); // Show global error
         } finally {
             setIsCreatingTrade(false);
         }
@@ -222,8 +226,11 @@ const TradeManagementPage: React.FC = () => {
             await tradeService.updateTrade(tradeToClose.id, updateData);
             handleCloseTradeDialogClose();
             fetchTrades();
+            notifier.showNotification("Trade closed successfully!", 'success');
         } catch (err: any) {
-            setError(err.message || "Failed to close trade.");
+            const errorMsg = err.message || "Failed to close trade.";
+            setError(errorMsg); // Set page level error for this action
+            notifier.showNotification(errorMsg, 'error');
         }
     };
 
