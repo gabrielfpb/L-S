@@ -8,8 +8,12 @@ ENV PYTHONUNBUFFERED 1
 # Set work directory
 WORKDIR /app
 
-# Install system dependencies (if any, e.g., for psycopg2 build if not using -binary)
-# RUN apt-get update && apt-get install -y ... && rm -rf /var/lib/apt/lists/*
+# Install system dependencies for xhtml2pdf and its dependencies (e.g., reportlab, pillow for fonts/xml)
+# fontconfig is often needed for font discovery by reportlab/Pillow.
+# libxml2 and libxslt1.1 for lxml if it's a transitive dependency and built from source,
+# or if xhtml2pdf/reportlab use them directly via ctypes.
+# Using --no-install-recommends to keep the image slim.
+RUN apt-get update &&     apt-get install -y --no-install-recommends     fontconfig     libxml2     libxslt1.1 &&     rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
 # Copy requirements first to leverage Docker cache

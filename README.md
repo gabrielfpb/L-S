@@ -30,7 +30,7 @@ This application is designed as a robust, intuitive, and highly customizable too
 *   **Daily/Weekly Reports**: Automatic performance summaries. (Backend logic placeholder, UI exists)
     *   **Backtesting Reports**: Analysis of Z-score based strategies using historical market data, with key performance metrics and equity curve visualization.
 *   **Email Distribution**: Automatic report distribution. (Future)
-    *   **Export**: Multiple formats (PDF, CSV). (Placeholder file generation for report data)
+    *   **Exportation**: Reports (summaries, backtest results) can be downloaded in CSV and PDF formats.
 
 ## 🛠️ Technologies Utilized
 
@@ -45,6 +45,7 @@ This application is designed as a robust, intuitive, and highly customizable too
 *   **Celery**: Asynchronous task processing.
 *   **Alembic**: Database migrations.
 *   **Passlib & python-jose**: Authentication (password hashing, JWT).
+    *   **xhtml2pdf**: For generating PDF reports from HTML.
 
 ### Frontend
 *   **React 18**: Library for building user interfaces.

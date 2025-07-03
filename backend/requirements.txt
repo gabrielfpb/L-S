@@ -17,3 +17,5 @@ httpx # For FastAPI's TestClient
 pytest-cov # For coverage
 alpha-vantage
 yfinance
+# For PDF generation (xhtml2pdf and its dependencies like reportlab, PyPDF2, html5lib)
+xhtml2pdf

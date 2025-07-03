@@ -12,6 +12,7 @@ from ..schemas.report_schemas import (
 )
 from ..dependencies import get_current_active_user
 from ...models.models import User as UserModel
+from ...core.config import settings # Import settings for REPORTS_STORAGE_DIR
 
 from fastapi.responses import FileResponse
 
@@ -145,16 +146,15 @@ async def download_report_file(
     # If rs.REPORTS_STORAGE_DIR is '/app/generated_reports', then the path stored is 'generated_reports/file.csv'
     # This means the path is relative to the project root if the service is consistent.
     # For FileResponse, we need an absolute path or path relative to where FastAPI is run.
-    # Let's assume paths stored in DB are relative to project root, e.g. 'generated_reports/file.pdf'
+    # The `file_path_in_db` should store just the filename, e.g., "my_report_123.pdf"
+    # as returned by reporting_service.generate_report_files
+    # The absolute path is constructed using settings.REPORTS_STORAGE_DIR
+    absolute_file_path = os.path.join(settings.REPORTS_STORAGE_DIR, file_path_in_db)
 
-    project_root_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../..")) # app/api/routes -> app -> backend
-    full_file_path = os.path.join(project_root_path, file_path_in_db)
+    if not os.path.isfile(absolute_file_path): # Use os.path.isfile for a more specific check
+        print(f"File not found on server: {absolute_file_path} (linked from report ID {report_id})")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"The requested {file_format.upper()} file was not found on the server.")
 
-
-    if not os.path.exists(full_file_path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found on server at path: {full_file_path}. DB path: {file_path_in_db}")
-
-    filename = os.path.basename(full_file_path)
-    media_type = 'application/pdf' if file_format.lower() == 'pdf' else 'text/csv'
-
-    return FileResponse(path=full_file_path, filename=filename, media_type=media_type)
+    # filename for FileResponse should be the actual name of the file being served,
+    # which is what the user will see as the download name.
+    return FileResponse(path=absolute_file_path, filename=file_path_in_db, media_type=media_type)

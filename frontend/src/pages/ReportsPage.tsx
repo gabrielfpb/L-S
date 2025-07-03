@@ -239,14 +239,32 @@ const ReportsPage: React.FC = () => {
     };
 
     const handleDownload = (report: reportService.Report, format: 'pdf' | 'csv') => {
-        const downloadUrlKey = `download_url_${format}` as keyof reportService.Report;
-        const downloadUrl = report[downloadUrlKey];
+        let downloadUrl: string | undefined = undefined;
+        let fileNameInDb: string | undefined = undefined;
+
+        if (format === 'pdf') {
+            downloadUrl = report.download_url_pdf; // Prefer fully formed URL from backend
+            fileNameInDb = report.file_path_pdf; // Check if file was generated
+        } else if (format === 'csv') {
+            downloadUrl = report.download_url_csv;
+            fileNameInDb = report.file_path_csv;
+        }
+
+        if (report.status !== "COMPLETED") {
+            notifier.showNotification(`Report is still '${report.status}'. Please wait for completion.`, 'warning');
+            return;
+        }
+
+        if (!downloadUrl && fileNameInDb) {
+            // If backend doesn't provide full download_url_*, construct it based on convention
+            downloadUrl = `/api/v1/reports/${report.id}/download/${format}`;
+        }
 
         if (downloadUrl) {
-             window.open(downloadUrl.startsWith('http') ? downloadUrl : `${process.env.REACT_APP_API_BASE_URL || ''}${downloadUrl}`, '_blank');
+            notifier.showNotification(`Preparing ${format.toUpperCase()} download for "${report.report_name || report.id}"...`, 'info');
+            window.open(downloadUrl, '_blank');
         } else {
-            const fallbackUrl = `/api/v1/reports/${report.id}/download/${format}`;
-            window.open(fallbackUrl, '_blank');
+            notifier.showNotification(`Download URL for ${format.toUpperCase()} not available for report "${report.report_name || report.id}". File might not have been generated.`, 'error');
         }
     };
 
@@ -343,7 +361,7 @@ const ReportsPage: React.FC = () => {
                     <TableHead>
                         <TableRow>
                             <TableCell>Name/ID</TableCell><TableCell>Type</TableCell><TableCell>Generated At</TableCell>
-                            <TableCell>Status</TableCell><TableCell align="center">Actions</TableCell>
+                            <TableCell>Status</TableCell><TableCell align="left">Actions</TableCell>
                         </TableRow>
                     </TableHead>
                     <TableBody>
@@ -357,12 +375,12 @@ const ReportsPage: React.FC = () => {
                                 <TableCell>{new Date(report.generated_at).toLocaleString()}</TableCell>
                                 <TableCell>
                                     {report.status === "PROCESSING" || report.status === "STARTED" ? (
-                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center' }} title={report.status}>
                                             <CircularProgress size={16} sx={{ mr: 1 }} />
                                             <Typography variant="caption">{report.status}</Typography>
                                         </Box>
                                     ) : report.status === "PENDING" ? (
-                                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
+                                        <Box sx={{ display: 'flex', alignItems: 'center' }} title={report.status}>
                                             <AccessTimeIcon fontSize="inherit" sx={{ mr: 0.5, color: 'text.secondary', width: 16, height: 16 }} />
                                             <Typography variant="caption">{report.status}</Typography>
                                         </Box>
@@ -370,16 +388,36 @@ const ReportsPage: React.FC = () => {
                                         report.status || 'N/A'
                                     )}
                                 </TableCell>
-                                <TableCell align="center">
+                                <TableCell align="left">
                                     {report.status === "COMPLETED" && (
-                                        <>
-                                        <Tooltip title="View Results"><IconButton size="small" onClick={() => handleViewReportDetails(report)} color="primary"><AssessmentIcon /></IconButton></Tooltip>
-                                        {report.download_url_pdf && <Tooltip title="Download PDF"><IconButton size="small" onClick={() => handleDownload(report, 'pdf')}><FileDownloadIcon /></IconButton></Tooltip>}
-                                        {report.download_url_csv && <Tooltip title="Download CSV"><IconButton size="small" onClick={() => handleDownload(report, 'csv')}><FileDownloadIcon /></IconButton></Tooltip>}
-                                        </>
+                                        <Tooltip title="View Report Details">
+                                            <IconButton size="small" onClick={() => handleViewReportDetails(report)} color="primary">
+                                                <AssessmentIcon />
+                                            </IconButton>
+                                        </Tooltip>
                                     )}
-                                    {/* No specific icon for PENDING here, as it's shown in status column */}
-                                    {report.status === "FAILED" && <Tooltip title={report.error_message || "Failed"}><Typography variant="caption" color="error">Failed</Typography></Tooltip>}
+                                    {report.status === "COMPLETED" && report.file_path_pdf && (
+                                        <Tooltip title="Download PDF">
+                                            <IconButton size="small" onClick={() => handleDownload(report, 'pdf')} color="error" sx={{ml:0.5}}>
+                                                <FileDownloadIcon /> <Typography variant="caption" sx={{ml:0.25}}>PDF</Typography>
+                                            </IconButton>
+                                        </Tooltip>
+                                    )}
+                                    {report.status === "COMPLETED" && report.file_path_csv && (
+                                        <Tooltip title="Download CSV">
+                                            <IconButton size="small" onClick={() => handleDownload(report, 'csv')} sx={{ml:0.5, color: 'green' }}>
+                                                <FileDownloadIcon /> <Typography variant="caption" sx={{ml:0.25}}>CSV</Typography>
+                                            </IconButton>
+                                        </Tooltip>
+                                    )}
+                                    {(report.status === "PENDING" || report.status === "PROCESSING" || report.status === "STARTED") && !isLoading && ( // Show spinner if task is active and main list not loading
+                                        <CircularProgress size={20} titleAccess={report.status} />
+                                    )}
+                                    {report.status === "FAILED" && (
+                                        <Tooltip title={report.error_message || "Report generation failed"}>
+                                            <Typography variant="caption" color="error">Failed</Typography>
+                                        </Tooltip>
+                                    )}
                                 </TableCell>
                             </TableRow>
                         ))}

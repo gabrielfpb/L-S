@@ -11,8 +11,12 @@ The backend provides APIs for:
 *   **Asynchronous Task Processing (Celery)**: Used for report generation and other potentially long-running operations. Task status can be checked via `/api/v1/tasks/`.
 *   **Reporting**:
     *   Triggering generation of performance summary reports and backtesting reports.
-    *   Listing report metadata and allowing download of generated files (placeholder PDF/CSV).
+        *   Listing report metadata and allowing download of generated files.
     *   Backtesting uses real market data and a Z-score based strategy, providing key metrics and equity curve data.
+        *   **File Generation**: Reports are generated in CSV and PDF formats.
+            *   CSV reports are created using Pandas for structured data output.
+            *   PDF reports are generated from HTML content using `xhtml2pdf`.
+            *   Files are stored in the `REPORTS_STORAGE_DIR` directory.
     *   Accessed via `/api/v1/reports/`.
 
 ## Caching Strategy (Market Data)
